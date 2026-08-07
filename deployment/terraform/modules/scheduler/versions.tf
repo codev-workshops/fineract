@@ -34,24 +34,4 @@ terraform {
       version = ">= 2.4.0"
     }
   }
-
-  # Remote state is intentionally left unconfigured so that the same root can be
-  # used against moto with a local state file. Point it at an S3 backend
-  # for a real account, for example:
-  #
-  # backend "s3" {
-  #   bucket       = "fineract-tfstate"
-  #   key          = "dev/terraform.tfstate"
-  #   region       = "eu-central-1"
-  #   use_lockfile = true
-  #   encrypt      = true
-  # }
-}
-
-provider "aws" {
-  region = var.region
-
-  default_tags {
-    tags = local.tags
-  }
 }

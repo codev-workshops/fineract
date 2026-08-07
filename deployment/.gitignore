@@ -1,0 +1,7 @@
+# Local tooling and build artifacts for the deployment helpers; never committed.
+.venv*/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Terraform local state and the zipped Lambda build.
+**/.build/

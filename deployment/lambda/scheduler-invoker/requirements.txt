@@ -1,0 +1,9 @@
+# Runtime dependencies for the scheduler-invoker Lambda.
+#
+# The handler intentionally uses only the Python standard library (urllib, ssl,
+# base64, json) plus boto3, which is provided by the AWS Lambda Python runtime.
+# Nothing needs to be packaged for deployment. This file is kept for clarity and
+# for environments that build a deployment bundle without the managed runtime.
+#
+# boto3 is available in the Lambda runtime; pin here only if you bundle it.
+# boto3>=1.34,<2

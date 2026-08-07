@@ -57,6 +57,13 @@ public class JobSchedulerServiceImpl implements ApplicationListener<ContextRefre
             log.warn("Batch job scheduling is disabled since this instance is not a batch manager");
             return;
         }
+        // Batch-manager mode stays on (so the executeJob API keeps accepting calls), but when in-app
+        // scheduling is disabled we register no Quartz triggers; job triggering comes from an external
+        // scheduler (e.g. EventBridge Scheduler -> Lambda -> executeJob).
+        if (!fineractProperties.getMode().isInAppSchedulingEnabled()) {
+            log.info("In-app job scheduling is disabled (external/EventBridge-driven); not registering any Quartz triggers");
+            return;
+        }
         final List<FineractPlatformTenant> allTenants = tenantDetailsService.findAllTenants();
         for (final FineractPlatformTenant tenant : allTenants) {
             ThreadLocalContextUtil.setTenant(tenant);

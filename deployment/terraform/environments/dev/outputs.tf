@@ -71,3 +71,25 @@ output "task_role_arns" {
   description = "Task role of each instance mode."
   value       = module.iam.task_role_arns
 }
+
+# --- Phase 4: EventBridge Scheduler -> Lambda trigger ----------------------
+
+output "scheduler_lambda_arn" {
+  description = "ARN of the scheduler-invoker Lambda."
+  value       = var.enable_scheduler ? module.scheduler[0].lambda_function_arn : null
+}
+
+output "scheduler_dlq_arn" {
+  description = "ARN of the scheduler-invoker dead-letter queue."
+  value       = var.enable_scheduler ? module.scheduler[0].dlq_arn : null
+}
+
+output "scheduler_api_secret_arn" {
+  description = "Secrets Manager ARN holding the Fineract base URL and API credentials for the Lambda."
+  value       = var.enable_scheduler ? module.scheduler[0].api_secret_arn : null
+}
+
+output "scheduler_schedule_arns" {
+  description = "ARNs of the EventBridge Scheduler schedules."
+  value       = var.enable_scheduler ? module.scheduler[0].schedule_arns : {}
+}

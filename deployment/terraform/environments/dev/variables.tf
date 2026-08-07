@@ -436,3 +436,89 @@ variable "ecr_force_delete" {
   type        = bool
   default     = false
 }
+
+# --- Phase 4: EventBridge Scheduler -> Lambda -> executeJob -----------------
+
+variable "batch_manager_node_id" {
+  description = <<-EOT
+    FINERACT_NODE_ID of the batch manager. Must equal the node_id stored on the
+    jobs the Lambda triggers; the seeded jobs default to 1, and executeJob rejects
+    a mismatched node (JobNodeIdMismatchingException).
+  EOT
+  type        = number
+  default     = 1
+}
+
+variable "batch_manager_in_app_scheduling_enabled" {
+  description = <<-EOT
+    Whether the batch manager registers in-app Quartz triggers. Left false once
+    the EventBridge path is active; the batch manager stays in batch-manager mode
+    (executeJob still returns 202). Flip to true to roll back to in-app scheduling.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "enable_scheduler" {
+  description = "Whether to create the EventBridge Scheduler / Lambda trigger stack."
+  type        = bool
+  default     = true
+}
+
+variable "scheduler_fineract_base_url" {
+  description = <<-EOT
+    Base URL the Lambda calls, up to and including Fineract's context path and
+    JAX-RS application path (e.g. http://internal-alb/fineract-provider/api). The
+    batch manager is not on the public ALB; point this at an internal ALB or a
+    Cloud Map name in front of the batch-manager service.
+  EOT
+  type        = string
+  default     = "http://batch-manager.fineract.internal:8443/fineract-provider/api"
+}
+
+variable "scheduler_fineract_api_username" {
+  description = "Username the Lambda authenticates the executeJob call with."
+  type        = string
+  default     = "mifos"
+}
+
+variable "scheduler_fineract_api_verify_tls" {
+  description = "Whether the Lambda verifies TLS on the executeJob call (false suits a private HTTP ALB)."
+  type        = bool
+  default     = false
+}
+
+variable "job_schedules" {
+  description = <<-EOT
+    EventBridge Scheduler schedules, keyed by short name. Generate the
+    schedule_expression / timezone from the stored Quartz crons with
+    deployment/cron/quartz_to_eventbridge.py. Defaults to a representative pair of
+    the seeded daily jobs against the default tenant.
+  EOT
+  type = map(object({
+    schedule_expression = string
+    timezone            = optional(string, "Asia/Kolkata")
+    job_id              = number
+    tenant_ids          = list(string)
+    enabled             = optional(bool, true)
+    description         = optional(string)
+  }))
+  default = {
+    # id 6: "Post Interest For Savings", Quartz "0 0 0 1/1 * ? *"
+    post-interest-for-savings = {
+      schedule_expression = "cron(0 0 * * ? *)"
+      timezone            = "Asia/Kolkata"
+      job_id              = 6
+      tenant_ids          = ["default"]
+      description         = "Post Interest For Savings (was Quartz 0 0 0 1/1 * ? *)"
+    }
+    # id 1: "Update loan Summary", Quartz "0 0 22 1/1 * ? *"
+    update-loan-summary = {
+      schedule_expression = "cron(0 22 * * ? *)"
+      timezone            = "Asia/Kolkata"
+      job_id              = 1
+      tenant_ids          = ["default"]
+      description         = "Update loan Summary (was Quartz 0 0 22 1/1 * ? *)"
+    }
+  }
+}

@@ -145,6 +145,11 @@ public class FineractProperties {
         private boolean batchWorkerEnabled;
         private boolean batchManagerEnabled;
 
+        // When false, the instance stays a batch manager (so it still accepts the
+        // executeJob API) but does not register any in-app Quartz triggers; job
+        // triggering is expected to come from an external scheduler (EventBridge).
+        private boolean inAppSchedulingEnabled = true;
+
         public boolean isReadOnlyMode() {
             return readEnabled && !writeEnabled && !batchWorkerEnabled && !batchManagerEnabled;
         }

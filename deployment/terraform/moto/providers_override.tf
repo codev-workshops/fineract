@@ -54,10 +54,13 @@ provider "aws" {
     iam                    = "http://localhost:5000"
     kafka                  = "http://localhost:5000"
     kms                    = "http://localhost:5000"
+    lambda                 = "http://localhost:5000"
     mq                     = "http://localhost:5000"
     rds                    = "http://localhost:5000"
     s3                     = "http://localhost:5000"
+    scheduler              = "http://localhost:5000"
     secretsmanager         = "http://localhost:5000"
+    sqs                    = "http://localhost:5000"
     ssm                    = "http://localhost:5000"
     sts                    = "http://localhost:5000"
   }

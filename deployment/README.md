@@ -23,8 +23,13 @@ Terraform for an ECS Fargate deployment of the unmodified Fineract image, plus a
 local stack that rehearses the same topology on a laptop.
 
 The application is not changed by any of this: the four instance modes are
-selected purely through environment variables, and in-app Quartz scheduling
-stays where it is.
+selected purely through environment variables. The one source change that does
+exist is a feature flag (`FINERACT_IN_APP_SCHEDULING_ENABLED`, default `true`)
+that lets the batch manager keep serving the `executeJob` API while an external
+scheduler owns *when* jobs run — see
+[Phase 4: EventBridge Scheduler trigger cutover](#phase-4-eventbridge-scheduler-trigger-cutover).
+Job execution, Spring Batch state and COB remote partitioning stay inside
+Fineract.
 
 ```
                     ┌──────────── ALB (HTTPS, ACM) ────────────┐
@@ -45,7 +50,9 @@ stays where it is.
 
 | path | what it is |
 | --- | --- |
-| `terraform/modules/{network,security,data,secrets,iam,ecs,alb}` | reusable modules |
+| `terraform/modules/{network,security,data,secrets,iam,ecs,alb,scheduler}` | reusable modules |
+| `lambda/scheduler-invoker` | the thin Lambda that calls `executeJob`, plus its moto tests |
+| `cron/quartz_to_eventbridge.py`, `cron/seeded-jobs-mapping.md` | Quartz→EventBridge cron translator and its output |
 | `terraform/environments/dev` | the dev environment root |
 | `terraform/moto` | provider override and driver script for local validation |
 | `local/run-multimode.sh`, `local/verify-multimode.sh` | the local four-mode stack |
@@ -167,11 +174,18 @@ It copies `providers_override.tf` and `moto.auto.tfvars` into
 `deployment/terraform/moto/.state`, and removes the copies again on exit, so the
 real configuration is never left pointing at the emulator.
 
-`plan` covers the whole topology — 123 resources. `apply` creates 116 of them:
+`plan` covers the whole topology — 139 resources. `apply` creates 132 of them:
 the VPC with its endpoints, the security groups, the Aurora cluster and its
 instances, the content bucket, Secrets Manager, SSM Parameter Store, IAM, ECR,
-the ECS cluster with all four services and their task definitions, and the ALB
-with its listeners and target groups. `destroy` removes all 116.
+the ECS cluster with all four services and their task definitions, the ALB
+with its listeners and target groups, and the Phase 4 trigger stack (the
+scheduler-invoker Lambda and its role, log group and API secret, the SQS DLQ,
+the EventBridge Scheduler role and schedules). `destroy` removes all 132.
+
+The scheduler stack applies cleanly against moto: `aws_scheduler_schedule`,
+`aws_lambda_function` (recorded, never invoked), `aws_sqs_queue`,
+`aws_secretsmanager_secret`, and the IAM roles/policies are all implemented. See
+the Phase 4 section for what the moto apply proves and what it cannot.
 
 Two pieces are planned but not applied, and the tfvars say so:
 
@@ -199,6 +213,147 @@ It does **not** validate:
   validates the ACM certificate or health-checks a target.
 
 All four need a real AWS sandbox account.
+
+## Phase 4: EventBridge Scheduler trigger cutover
+
+Phase 4 moves *only the trigger* out of the application. Instead of the batch
+manager firing its own in-app Quartz cron triggers, **Amazon EventBridge
+Scheduler → a thin Lambda → the existing `POST /v1/jobs/{jobId}?command=executeJob`
+API** decides when jobs run. Everything downstream of that API call is unchanged:
+Spring Batch, `job_run_history` recording via `SchedulerJobListener`, and COB
+remote partitioning across the manager and workers all stay inside Fineract.
+
+```
+  EventBridge Scheduler                 Lambda (VPC, app subnets)         Fineract batch manager
+  ┌─────────────────────┐  invoke   ┌───────────────────────────┐  HTTPS  ┌──────────────────────┐
+  │ cron(...) per job,   ├──────────►│ read base_url + creds from ├────────►│ POST /v1/jobs/{id}     │
+  │ tenant tz, static    │  role     │ Secrets Manager; one call  │ 202     │   ?command=executeJob  │
+  │ input {jobId,tenants}│           │ per tenant with            │         │ (batch-manager mode,   │
+  │ retries=0 → SQS DLQ  │           │ Fineract-Platform-TenantId │         │  in-app scheduling off)│
+  └─────────────────────┘           └───────────────────────────┘         └──────────────────────┘
+```
+
+### The trigger-only design
+
+- **Execution never leaves Fineract.** The Lambda is a caller; it holds no job
+  logic and no Spring Batch state. A non-202 response is a failure it surfaces,
+  not something it works around.
+- The batch manager keeps `FINERACT_MODE_BATCH_MANAGER_ENABLED=true`, so
+  `SchedulerJobApiResource.executeJob` still accepts the call and returns `202`.
+  The new flag `FINERACT_IN_APP_SCHEDULING_ENABLED=false` makes
+  `JobSchedulerServiceImpl.onApplicationEvent` log that in-app scheduling is
+  disabled and return **before** registering any Quartz trigger.
+- **Node scoping.** `executeJobWithParameters` rejects a job whose stored
+  `nodeId` does not match this instance's `FINERACT_NODE_ID` (or `0`) with
+  `JobNodeIdMismatchingException`. The seeded jobs default to `nodeId = 1`, so
+  the batch manager runs with `FINERACT_NODE_ID = 1`
+  (`var.batch_manager_node_id`) and the Lambda targets that instance. Point a
+  schedule at a job on another node only if a batch manager on that node exists.
+- **No double-firing.** Each schedule sets `maximum_retry_attempts = 0` and a
+  DLQ, so a failed invocation lands in SQS instead of re-firing. Fineract's own
+  `currently_running` / `updates_allowed` guards remain the backstop.
+
+### Translating the Quartz crons
+
+Quartz cron is 6–7 fields with a leading **seconds** field and an optional
+trailing **year**; EventBridge Scheduler cron is 6 fields, no seconds,
+`cron(minutes hours day-of-month month day-of-week year)`. Day-of-week numbering
+matches (`1–7 = SUN–SAT`), and exactly one of day-of-month / day-of-week must be
+`?`. The translator handles the seconds/year drop, the `?`/`*` rules and rejects
+anything that cannot be represented (e.g. a sub-minute schedule, or seconds other
+than `0`) rather than silently changing behaviour.
+
+```bash
+# one expression
+python3 deployment/cron/quartz_to_eventbridge.py --expr "0 0 22 1/1 * ? *" --timezone Asia/Kolkata
+
+# every seeded job, as the mapping doc that is checked in
+python3 deployment/cron/quartz_to_eventbridge.py \
+  --liquibase fineract-provider/src/main/resources/db/changelog/tenant/parts/0002_initial_data.xml \
+  --timezone Asia/Kolkata --format markdown > deployment/cron/seeded-jobs-mapping.md
+
+# or JSON, straight into a job_schedules tfvars entry
+python3 deployment/cron/quartz_to_eventbridge.py --liquibase <path> --timezone Asia/Kolkata --format json
+```
+
+`deployment/cron/seeded-jobs-mapping.md` is that output for all 32 seeded jobs
+against `Asia/Kolkata`; every one translates 1:1. Any job that did not would be
+listed there as non-translatable with the reason.
+
+### Running the Lambda unit tests (moto)
+
+The handler is tested against a **local HTTP stub** (returning 202 / 405 / 500)
+and a moto-mocked Secrets Manager — no real AWS and no running Fineract:
+
+```bash
+python3 -m venv deployment/.venv-phase4 && . deployment/.venv-phase4/bin/activate
+pip install -r deployment/lambda/scheduler-invoker/requirements-dev.txt
+pytest deployment/lambda/scheduler-invoker/tests deployment/cron/tests -q
+```
+
+The tests assert the URL/path/query (`command=executeJob`), the
+`Fineract-Platform-TenantId` header per tenant, one call per tenant, that every
+tenant is attempted, and that 202 succeeds while any non-202 (405, 500) fails so
+EventBridge routes the event to the DLQ. If your environment exports
+`AWS_ENDPOINT_URL` (this repo's blueprint points it at moto), the tests clear it
+so the in-process `mock_aws` intercepts the Secrets Manager calls.
+
+### Terraform against moto
+
+`deployment/terraform/moto/validate.sh apply` creates the scheduler stack along
+with the rest and reads it back; `providers_override.tf` adds `lambda`,
+`scheduler` and `sqs` endpoints. This proves the IaC is well formed and that the
+resources are created/destroyed cleanly. **moto records the Lambda; it never
+runs it, and it cannot execute the Spring Batch job** — that needs the compose
+stack below or a real account.
+
+### End-to-end validation (compose, not moto)
+
+moto cannot run the job, so exercise the real path against the Phase 2 compose
+stack (real PostgreSQL, and the broker for COB):
+
+1. Boot a batch manager against real Postgres with
+   `FINERACT_IN_APP_SCHEDULING_ENABLED=false`,
+   `FINERACT_MODE_BATCH_MANAGER_ENABLED=true`, `FINERACT_NODE_ID=1`
+   (`deployment/local/run-multimode.sh` brings up the four-mode stack; set the
+   flag on the batch-manager service). Confirm in its logs:
+   `In-app job scheduling is disabled (external/EventBridge-driven); not registering any Quartz triggers`
+   and that **no** Quartz trigger fires.
+2. Run the handler locally against that manager. Put the manager's URL and
+   credentials in a Secrets Manager secret (against moto or a real account) and
+   point the handler at it, then invoke it exactly as EventBridge would:
+
+   ```bash
+   cd deployment/lambda/scheduler-invoker
+   export FINERACT_API_SECRET_ID=<secret-arn>   # {base_url, username, password, verify_tls}
+   python3 -c 'import handler; print(handler.handler({"jobId": 1, "tenantIds": ["default"]}, None))'
+   ```
+
+   `base_url` is up to and including the context + application path (e.g.
+   `https://localhost:8445/fineract-provider/api`); the handler appends
+   `/v1/jobs/{id}?command=executeJob`.
+3. Assert the run is recorded: a new row in `job_run_history` for that job
+   (written by `SchedulerJobListener`), the API returned `202`, and no duplicate
+   or in-app execution occurred. If COB is exercised, it still completes across
+   the manager and worker over the compose broker — Phase 4 changed none of that.
+
+**moto cannot execute the Spring Batch job itself.** The moto tests prove the
+Lambda calls the right endpoint and handles responses; only a running Fineract
+(compose or a real account) proves the job actually runs and lands in
+`job_run_history`.
+
+### Rollback
+
+- **Immediate:** set `FINERACT_IN_APP_SCHEDULING_ENABLED=true` on the batch
+  manager (or drop it — the default is `true`;
+  `var.batch_manager_in_app_scheduling_enabled = true`). In-app Quartz scheduling
+  resumes on the next boot; nothing about job execution has to be redeployed
+  because it never left Fineract.
+- **Stop external triggering:** disable the schedules (set their `enabled` to
+  `false`) or `terraform destroy` the Phase 4 resources
+  (`-target=module.scheduler`, or `enable_scheduler = false`).
+- **Full revert:** reverting the Phase 4 branch restores the prior behaviour
+  exactly.
 
 ## The local four-mode stack
 

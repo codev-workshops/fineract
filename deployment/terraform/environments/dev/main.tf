@@ -220,15 +220,21 @@ locals {
         batch_manager_enabled = true
         batch_worker_enabled  = false
         liquibase_enabled     = false
-        node_id               = 2
-        desired_count         = 1
-        cpu                   = var.batch_manager_cpu
-        memory                = var.batch_manager_memory
-        singleton             = true
-        autoscaling           = null
+        # Must match the node_id stored on the jobs (seeded jobs default to 1);
+        # executeJobWithParameters rejects a mismatched node, so the batch manager
+        # the Lambda targets has to own those jobs.
+        node_id       = var.batch_manager_node_id
+        desired_count = 1
+        cpu           = var.batch_manager_cpu
+        memory        = var.batch_manager_memory
+        singleton     = true
+        autoscaling   = null
         extra_environment = {
           LOAN_COB_CHUNK_SIZE     = tostring(var.loan_cob_chunk_size)
           LOAN_COB_PARTITION_SIZE = tostring(var.loan_cob_partition_size)
+          # Phase 4: in-app Quartz scheduling is off; EventBridge -> Lambda triggers
+          # jobs. Batch-manager mode stays on so executeJob keeps returning 202.
+          FINERACT_IN_APP_SCHEDULING_ENABLED = tostring(var.batch_manager_in_app_scheduling_enabled)
         }
       }
       "batch-worker" = {
@@ -364,6 +370,38 @@ module "ecs" {
   ecr_repository_name    = var.ecr_repository_name
   create_ecr_repository  = var.create_ecr_repository
   ecr_force_delete       = var.ecr_force_delete
+
+  tags = local.tags
+}
+
+# ---------------------------------------------------------------------------
+# Phase 4: EventBridge Scheduler -> Lambda -> executeJob. Replaces the in-app
+# Quartz trigger. The Lambda runs in the private app subnets and reaches the
+# batch-manager over the app security group.
+# ---------------------------------------------------------------------------
+
+module "scheduler" {
+  source = "../../modules/scheduler"
+
+  count = var.enable_scheduler ? 1 : 0
+
+  name_prefix                     = local.name_prefix
+  vpc_id                          = module.network.vpc_id
+  subnet_ids                      = module.network.app_subnet_ids
+  batch_manager_security_group_id = module.security.app_security_group_id
+  app_port                        = var.app_port
+
+  lambda_source_file = "${path.module}/../../../lambda/scheduler-invoker/handler.py"
+
+  fineract_base_url       = var.scheduler_fineract_base_url
+  fineract_api_username   = var.scheduler_fineract_api_username
+  fineract_api_verify_tls = var.scheduler_fineract_api_verify_tls
+
+  api_secret_recovery_window_in_days = var.secret_recovery_window_in_days
+  log_retention_in_days              = var.log_retention_in_days
+  kms_key_arn                        = var.kms_key_arn
+
+  schedules = var.job_schedules
 
   tags = local.tags
 }
