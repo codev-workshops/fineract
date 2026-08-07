@@ -63,8 +63,8 @@ aws --endpoint-url "${s3_endpoint}" s3api create-bucket --bucket "${bucket}" >/d
 echo ">> starting the four instance modes"
 docker compose -f "${compose_file}" up -d
 
-echo ">> waiting for the write and read modes to report healthy"
-for service in fineract-write fineract-read; do
+echo ">> waiting for all four instance modes to report healthy"
+for service in fineract-write fineract-read fineract-batch-manager fineract-batch-worker; do
   container="$(docker compose -f "${compose_file}" ps -q "${service}")"
   for _ in $(seq 1 120); do
     state="$(docker inspect -f '{{.State.Health.Status}}' "${container}")"

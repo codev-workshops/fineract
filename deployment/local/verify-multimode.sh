@@ -18,9 +18,13 @@
 # under the License.
 #
 # Checks the stack started by run-multimode.sh:
-#   1. the write and read modes answer UP on /actuator/health
+#   1. all four instance modes (write, read, batch-manager, batch-worker) answer
+#      UP on /actuator/health
 #   2. exactly one batch manager is running
-#   3. a document round-trips through the moto S3 content store
+#   3. the scheduler is active on exactly one node - the batch manager - proving
+#      scheduled jobs fire on a single node (see fineract.mode.* in
+#      application.properties and the single-manager assumption)
+#   4. a document round-trips through the moto S3 content store
 #
 # The document flow mirrors integration-tests DocumentTest: create a client,
 # upload a file against it, download it again and compare the bytes.
@@ -31,6 +35,8 @@ readonly project="${COMPOSE_PROJECT_NAME:-fineract}"
 readonly s3_endpoint="${MOTO_ENDPOINT:-http://localhost:5000}"
 readonly write_url="${FINERACT_WRITE_URL:-http://localhost:8443/fineract-provider/api/v1}"
 readonly read_url="${FINERACT_READ_URL:-http://localhost:8444/fineract-provider/api/v1}"
+readonly manager_url="${FINERACT_BATCH_MANAGER_URL:-http://localhost:8445/fineract-provider/api/v1}"
+readonly worker_url="${FINERACT_BATCH_WORKER_URL:-http://localhost:8446/fineract-provider/api/v1}"
 readonly bucket="${FINERACT_CONTENT_BUCKET:-fineract-content}"
 readonly auth="${FINERACT_BASIC_AUTH:-mifos:password}"
 
@@ -45,7 +51,11 @@ api() {
 }
 
 echo ">> health"
-for name_url in "write ${write_url%/api/v1}" "read ${read_url%/api/v1}"; do
+for name_url in \
+  "write ${write_url%/api/v1}" \
+  "read ${read_url%/api/v1}" \
+  "batch-manager ${manager_url%/api/v1}" \
+  "batch-worker ${worker_url%/api/v1}"; do
   set -- ${name_url}
   status="$(curl -sf "${2}/actuator/health" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
   echo "   ${1}: ${status}"
@@ -58,6 +68,31 @@ managers="$(docker ps -q \
   --filter "label=com.docker.compose.service=fineract-batch-manager" | wc -l)"
 echo "   running: ${managers}"
 [[ "${managers}" -eq 1 ]] || { echo "expected exactly one batch manager, found ${managers}" >&2; exit 1; }
+
+echo ">> scheduler active on exactly one node (the batch manager)"
+scheduler_active() {
+  curl -sf -u "${auth}" -H "Fineract-Platform-TenantId: default" "${1}/scheduler" 2>/dev/null |
+    python3 -c 'import json,sys
+try:
+    print(str(json.load(sys.stdin).get("active", False)).lower())
+except Exception:
+    print("false")' || true
+}
+active_nodes=0
+for name_url in \
+  "write ${write_url}" \
+  "read ${read_url}" \
+  "batch-manager ${manager_url}" \
+  "batch-worker ${worker_url}"; do
+  set -- ${name_url}
+  active="$(scheduler_active "${2}")"
+  echo "   ${1}: scheduler active=${active}"
+  if [[ "${active}" == "true" ]]; then
+    active_nodes=$((active_nodes + 1))
+    [[ "${1}" == "batch-manager" ]] || { echo "scheduler is active on ${1}, expected only the batch manager" >&2; exit 1; }
+  fi
+done
+[[ "${active_nodes}" -eq 1 ]] || { echo "expected the scheduler on exactly one node, found ${active_nodes}" >&2; exit 1; }
 
 echo ">> document round trip through S3"
 client_id="$(api POST "${write_url}/clients" \
