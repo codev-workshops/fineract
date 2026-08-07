@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.infrastructure.core.service.database;
 
-import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.Optional;
@@ -52,18 +51,15 @@ public class DatabasePasswordEncryptor implements PasswordEncryptor {
         System.out.println(MessageFormat.format("The master password hash is: {0}", getPasswordHash(masterPassword)));
     }
 
-    @PostConstruct
-    public void validateMasterPassword() {
-        String masterPassword = getMasterPassword();
+    private String getMasterPassword() {
+        String masterPassword = Optional.ofNullable(fineractProperties.getTenant())
+                .map(FineractProperties.FineractTenantProperties::getMasterPassword)
+                .orElse(fineractProperties.getDatabase().getDefaultMasterPassword());
         if (StringUtils.isBlank(masterPassword) || (masterPassword.startsWith("${") && masterPassword.endsWith("}"))) {
             throw new IllegalStateException(
                     "The database master password is not configured. Provide it via the FINERACT_DEFAULT_TENANTDB_MASTER_PASSWORD or the FINERACT_DEFAULT_MASTER_PASSWORD environment variable.");
         }
-    }
-
-    private String getMasterPassword() {
-        return Optional.ofNullable(fineractProperties.getTenant()).map(FineractProperties.FineractTenantProperties::getMasterPassword)
-                .orElse(fineractProperties.getDatabase().getDefaultMasterPassword());
+        return masterPassword;
     }
 
     @Override
