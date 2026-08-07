@@ -64,8 +64,7 @@ public class TwoFactorAuthenticationTest {
 
     @RegisterExtension
     static GreenMailExtension greenMail = new GreenMailExtension(ServerSetupTest.SMTP)
-            .withConfiguration(GreenMailConfiguration.aConfig().withUser("support@cloudmicrofinance.com", "support81"))
-            .withPerMethodLifecycle(true);
+            .withConfiguration(GreenMailConfiguration.aConfig().withDisabledAuthentication()).withPerMethodLifecycle(true);
 
     @BeforeEach
     public void setup() throws InterruptedException {

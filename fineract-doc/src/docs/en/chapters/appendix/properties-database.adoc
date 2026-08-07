@@ -21,7 +21,7 @@
 
 |fineract.tenant.password
 |FINERACT_DEFAULT_TENANTDB_PWD
-|mysql
+|none (required)
 |This property sets the password of the default tenant database.
 
 |fineract.tenant.parameters
@@ -51,7 +51,7 @@
 
 |fineract.tenant.master-password
 |FINERACT_DEFAULT_TENANTDB_MASTER_PASSWORD
-|fineract
+|none (required)
 |The password used to encrypt sensitive tenant data within the database
 
 |fineract.tenant.encryption

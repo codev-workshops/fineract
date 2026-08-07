@@ -18,10 +18,12 @@
  */
 package org.apache.fineract.infrastructure.core.service.database;
 
+import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.security.service.PasswordEncryptor;
 import org.apache.fineract.infrastructure.security.utils.EncryptionUtil;
@@ -50,11 +52,23 @@ public class DatabasePasswordEncryptor implements PasswordEncryptor {
         System.out.println(MessageFormat.format("The master password hash is: {0}", getPasswordHash(masterPassword)));
     }
 
+    @PostConstruct
+    public void validateMasterPassword() {
+        String masterPassword = getMasterPassword();
+        if (StringUtils.isBlank(masterPassword) || (masterPassword.startsWith("${") && masterPassword.endsWith("}"))) {
+            throw new IllegalStateException(
+                    "The database master password is not configured. Provide it via the FINERACT_DEFAULT_TENANTDB_MASTER_PASSWORD or the FINERACT_DEFAULT_MASTER_PASSWORD environment variable.");
+        }
+    }
+
+    private String getMasterPassword() {
+        return Optional.ofNullable(fineractProperties.getTenant()).map(FineractProperties.FineractTenantProperties::getMasterPassword)
+                .orElse(fineractProperties.getDatabase().getDefaultMasterPassword());
+    }
+
     @Override
     public String encrypt(String plainPassword) {
-        String masterPassword = Optional.ofNullable(fineractProperties.getTenant())
-                .map(FineractProperties.FineractTenantProperties::getMasterPassword)
-                .orElse(fineractProperties.getDatabase().getDefaultMasterPassword());
+        String masterPassword = getMasterPassword();
         String encryption = Optional.ofNullable(fineractProperties.getTenant())
                 .map(FineractProperties.FineractTenantProperties::getEncryption).orElse(DEFAULT_ENCRYPTION);
         return EncryptionUtil.encryptToBase64(encryption, masterPassword, plainPassword);
@@ -62,20 +76,14 @@ public class DatabasePasswordEncryptor implements PasswordEncryptor {
 
     @Override
     public String decrypt(String encryptedPassword) {
-        String masterPassword = Optional.ofNullable(fineractProperties.getTenant())
-                .map(FineractProperties.FineractTenantProperties::getMasterPassword)
-                .orElse(fineractProperties.getDatabase().getDefaultMasterPassword());
+        String masterPassword = getMasterPassword();
         String encryption = Optional.ofNullable(fineractProperties.getTenant())
                 .map(FineractProperties.FineractTenantProperties::getEncryption).orElse(DEFAULT_ENCRYPTION);
         return EncryptionUtil.decryptFromBase64(encryption, masterPassword, encryptedPassword);
     }
 
     public String getMasterPasswordHash() {
-        String masterPassword = Optional.ofNullable(fineractProperties) //
-                .map(FineractProperties::getTenant) //
-                .map(FineractProperties.FineractTenantProperties::getMasterPassword) //
-                .orElse(fineractProperties.getDatabase().getDefaultMasterPassword());
-        return getPasswordHash(masterPassword);
+        return getPasswordHash(getMasterPassword());
     }
 
     private static String getPasswordHash(String masterPassword) {
@@ -83,10 +91,6 @@ public class DatabasePasswordEncryptor implements PasswordEncryptor {
     }
 
     public boolean isMasterPasswordHashValid(String hashed) {
-        String masterPassword = Optional.ofNullable(fineractProperties) //
-                .map(FineractProperties::getTenant) //
-                .map(FineractProperties.FineractTenantProperties::getMasterPassword) //
-                .orElse(fineractProperties.getDatabase().getDefaultMasterPassword());
-        return BCrypt.checkpw(masterPassword, hashed);
+        return BCrypt.checkpw(getMasterPassword(), hashed);
     }
 }

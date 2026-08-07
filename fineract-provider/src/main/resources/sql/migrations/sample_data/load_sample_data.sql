@@ -416,7 +416,7 @@ INSERT INTO `c_external_service_properties` (`name`, `value`, `external_service_
     ('s3_bucket_name', NULL, 1),
     ('s3_secret_key', NULL, 1),
     ('username', 'support@cloudmicrofinance.com', 2),
-    ('password', 'support81', 2),
+    ('password', NULL, 2),
     ('host', 'smtp.gmail.com', 2),
     ('port', '25', 2),
     ('useTLS', 'true', 2),

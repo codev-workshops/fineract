@@ -445,6 +445,7 @@
         </insert>
     </changeSet>
     <changeSet author="fineract" id="4">
+        <validCheckSum>9:c87b2f56783ceb70f9cb157bf7d45e57</validCheckSum>
         <insert tableName="c_external_service_properties">
             <column name="name" value="s3_access_key"/>
             <column name="value"/>
@@ -467,7 +468,7 @@
         </insert>
         <insert tableName="c_external_service_properties">
             <column name="name" value="password"/>
-            <column name="value" value="support81"/>
+            <column name="value"/>
             <column name="external_service_id" valueNumeric="2"/>
         </insert>
         <insert tableName="c_external_service_properties">
@@ -507,8 +508,7 @@
         </insert>
         <insert tableName="c_external_service_properties">
             <column name="name" value="server_key"/>
-            <column name="value"
-                    value="AAAAToBmqQQ:APA91bEodkE12CwFl8VHqanUbeJYg1E05TiheVz59CZZYrBnCq3uM40UYhHfdP-JfeTQ0L0zoLqS8orjvW_ze0_VF8DSuyyqkrDibflhtUainsI0lwgVz5u1YP3q3c3erqjlySEuRShS"/>
+            <column name="value"/>
             <column name="external_service_id" valueNumeric="4"/>
         </insert>
         <insert tableName="c_external_service_properties">

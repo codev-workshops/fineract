@@ -31,6 +31,6 @@
 
 |server.ssl.key-store-password
 |FINERACT_SERVER_SSL_KEY_STORE_PASSWORD
-|openmf
+|none (required)
 |The property defines the password for the keystore specified under property **server.ssl.key-store**
 |===
