@@ -1,0 +1,51 @@
+name: AWS Migration Tests
+
+# Phase 3: exercises the behaviours the AWS deployment relies on. The S3,
+# IAM-role, read-replica, forwarded-headers and secrets-injection scenarios run
+# as JUnit tests backed by moto and Postgres via Testcontainers. The broker
+# manager->worker COB E2E is covered by smoke-messaging.yml.
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  aws-migration-tests:
+    name: moto + Postgres behaviour tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    env:
+      DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
+
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5
+        with:
+          java-version: '21'
+          distribution: 'zulu'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
+
+      - name: Pull moto image
+        run: docker pull motoserver/moto:latest
+
+      - name: Run AWS migration behaviour tests
+        run: |
+          ./gradlew --no-daemon --console=plain :fineract-provider:test \
+            --tests "org.apache.fineract.infrastructure.aws.*" \
+            --tests "org.apache.fineract.infrastructure.core.service.database.ReadReplicaDataSourceIntegrationTest"
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aws-migration-test-reports
+          path: fineract-provider/build/reports/tests/
+          retention-days: 7

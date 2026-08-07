@@ -223,4 +223,9 @@ dependencies {
         exclude group: 'org.skyscreamer'
     }
     testImplementation ('org.mockito:mockito-inline')
+    testImplementation (
+            'org.testcontainers:junit-jupiter',
+            'org.testcontainers:postgresql',
+            'org.postgresql:postgresql',
+            )
 }
