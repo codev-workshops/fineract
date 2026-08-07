@@ -353,7 +353,10 @@ allprojects  {
             "**/generated/**/*MapperImpl.java",
             '**/META-INF/fineract-test.config',
             // Apache-specific GitHub metadata settings file
-            '/.asf.yaml'
+            '/.asf.yaml',
+            // Terraform working directories and generated provider lock files
+            '**/.terraform/**',
+            '**/.terraform.lock.hcl'
         ]
     }
 }
