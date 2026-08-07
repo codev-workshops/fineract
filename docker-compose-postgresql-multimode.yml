@@ -1,0 +1,139 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# Local rehearsal of the AWS deployment described in deployment/README.md: the
+# same image runs in all four instance modes against PostgreSQL and a LocalStack
+# S3 content store, with TLS terminated in front of the containers exactly as
+# the ALB does it.
+#
+# Every password comes from the environment; nothing is committed. Bring the
+# stack up with deployment/local/run-multimode.sh, which generates the values
+# and waits for the services to become healthy.
+
+x-fineract-env: &fineract-env
+  # Mirrors the ECS task definition `secrets` block, where these come from
+  # Secrets Manager instead of the shell.
+  FINERACT_HIKARI_PASSWORD: ${FINERACT_DB_PASSWORD:?set FINERACT_DB_PASSWORD, see deployment/README.md}
+  FINERACT_DEFAULT_TENANTDB_PWD: ${FINERACT_DB_PASSWORD:?set FINERACT_DB_PASSWORD, see deployment/README.md}
+  FINERACT_DEFAULT_TENANTDB_RO_PWD: ${FINERACT_DB_PASSWORD:?set FINERACT_DB_PASSWORD, see deployment/README.md}
+  FINERACT_DEFAULT_MASTER_PASSWORD: ${FINERACT_MASTER_PASSWORD:?set FINERACT_MASTER_PASSWORD, see deployment/README.md}
+  FINERACT_DEFAULT_TENANTDB_MASTER_PASSWORD: ${FINERACT_MASTER_PASSWORD:?set FINERACT_MASTER_PASSWORD, see deployment/README.md}
+  FINERACT_SERVER_SSL_KEY_STORE_PASSWORD: ${FINERACT_KEYSTORE_PASSWORD:?set FINERACT_KEYSTORE_PASSWORD, see deployment/README.md}
+  # TLS terminates at the ALB in AWS, so the containers speak plain HTTP.
+  FINERACT_SERVER_SSL_ENABLED: "false"
+
+x-fineract: &fineract
+  image: ${IMAGE_NAME:-apache/fineract:latest}
+  volumes:
+    - ${PWD}/config/docker/logback/logback-override.xml:/app/logback-override.xml
+    - ${PWD}/config/docker/aws/etc/credentials:/etc/aws/credentials:ro
+    - ${PWD}/build/fineract/logs:/var/logs/fineract:rw
+  environment: *fineract-env
+  healthcheck:
+    test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8443/fineract-provider/actuator/health"]
+    interval: 15s
+    timeout: 10s
+    retries: 40
+    start_period: 90s
+
+services:
+
+  db:
+    extends:
+      file: ./config/docker/compose/postgresql.yml
+      service: postgresql
+    environment:
+      POSTGRES_PASSWORD: ${FINERACT_DB_PASSWORD:?set FINERACT_DB_PASSWORD, see deployment/README.md}
+      FINERACT_DB_PASS: ${FINERACT_DB_PASSWORD:?set FINERACT_DB_PASSWORD, see deployment/README.md}
+
+  localstack:
+    extends:
+      file: ./config/docker/compose/localstack.yml
+      service: localstack
+
+  # Stands in for MSK. Splitting the batch manager from the batch workers is
+  # only legal with a remote message handler, so the local stack needs a real
+  # broker just like the AWS one does.
+  kafka:
+    image: apache/kafka:4.1.1-rc2
+    ports:
+      - "9092:9092"
+    env_file:
+      - ./config/docker/env/kafka-server.env
+
+  # Owns the schema: the only service with Liquibase enabled.
+  fineract-write:
+    <<: *fineract
+    ports:
+      - "8443:8443"
+    env_file:
+      - ./config/docker/env/fineract-common.env
+      - ./config/docker/env/fineract-postgresql.env
+      - ./config/docker/env/content-s3-localstack.env
+      - ./config/docker/env/fineract-readonly-datasource.env
+      - ./config/docker/env/fineract-write.env
+    depends_on:
+      db:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+  fineract-read:
+    <<: *fineract
+    ports:
+      - "8444:8443"
+    env_file:
+      - ./config/docker/env/fineract-common.env
+      - ./config/docker/env/fineract-postgresql.env
+      - ./config/docker/env/content-s3-localstack.env
+      - ./config/docker/env/fineract-readonly-datasource.env
+      - ./config/docker/env/fineract-read.env
+    depends_on:
+      fineract-write:
+        condition: service_healthy
+
+  # Singleton by construction: scaling this service is a configuration error
+  # rather than a capacity decision.
+  fineract-batch-manager:
+    <<: *fineract
+    ports:
+      - "8445:8443"
+    env_file:
+      - ./config/docker/env/fineract-common.env
+      - ./config/docker/env/fineract-postgresql.env
+      - ./config/docker/env/content-s3-localstack.env
+      - ./config/docker/env/kafka-client.env
+      - ./config/docker/env/fineract-batch-manager.env
+    depends_on:
+      fineract-write:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+
+  fineract-batch-worker:
+    <<: *fineract
+    ports:
+      - "8446:8443"
+    env_file:
+      - ./config/docker/env/fineract-common.env
+      - ./config/docker/env/fineract-postgresql.env
+      - ./config/docker/env/content-s3-localstack.env
+      - ./config/docker/env/kafka-client.env
+      - ./config/docker/env/fineract-batch-worker.env
+    depends_on:
+      fineract-batch-manager:
+        condition: service_healthy

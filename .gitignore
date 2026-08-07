@@ -35,3 +35,10 @@ gradleExp/
 .java-version
 
 .windsurf/
+# Terraform working directories and state (see deployment/README.md)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+deployment/terraform/localstack/.state/
+terraform.tfvars
