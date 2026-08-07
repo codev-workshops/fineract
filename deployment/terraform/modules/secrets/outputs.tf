@@ -25,7 +25,7 @@ output "secret_arns" {
 output "parameter_arns" {
   description = "SSM parameter ARNs keyed by parameter path suffix."
   # Built from the name rather than read back from the resource: the attribute
-  # comes back empty from some non-AWS endpoints (LocalStack), which would
+  # comes back empty from some non-AWS endpoints (moto), which would
   # produce an invalid IAM policy downstream.
   value = {
     for k, v in aws_ssm_parameter.this :

@@ -16,18 +16,24 @@
 # under the License.
 #
 
+# Stands in for S3. moto serves every API from this one port and does
+# path-style addressing, which is why the content store is configured with
+# FINERACT_CONTENT_S3_PATH_STYLE_ADDRESSING_ENABLED=true.
 services:
-  localstack:
-    image: localstack/localstack:${LOCALSTACK_VERSION:-4}
+  moto:
+    image: motoserver/moto:${MOTO_VERSION:-latest}
     environment:
-      SERVICES: s3
-      DEBUG: "0"
-      # Created before Fineract starts so the content repository finds it.
-      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:-}
+      MOTO_PORT: "5000"
     ports:
-      - "4566:4566"
+      - "5000:5000"
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -sf http://localhost:4566/_localstack/health | grep -q '\"s3\"'"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:5000/moto-api/')",
+        ]
       interval: 5s
       timeout: 5s
       retries: 30

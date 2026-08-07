@@ -275,6 +275,7 @@ locals {
   services = {
     for name, svc in local.service_modes : name => merge(svc, {
       target_group_arn = contains(local.routed_modes, name) ? module.alb.target_group_arns[name] : null
+      autoscaling      = var.enable_autoscaling ? svc.autoscaling : null
     })
   }
 

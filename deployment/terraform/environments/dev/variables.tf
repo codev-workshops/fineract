@@ -241,6 +241,16 @@ variable "worker_max_capacity" {
   default     = 10
 }
 
+variable "enable_autoscaling" {
+  description = <<-EOT
+    Whether to attach Application Auto Scaling targets and policies to the
+    scalable services. With this off every service keeps its desired count; the
+    batch manager is a singleton either way.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "autoscaling_cpu_target" {
   description = "Average CPU utilisation the autoscaling policies aim for."
   type        = number

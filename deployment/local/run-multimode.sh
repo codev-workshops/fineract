@@ -18,7 +18,7 @@
 # under the License.
 #
 # Boots docker-compose-postgresql-multimode.yml: the four Fineract instance
-# modes against PostgreSQL and LocalStack S3.
+# modes against PostgreSQL and moto S3.
 #
 #   ./run-multimode.sh          build the image if needed, then bring the stack up
 #   ./run-multimode.sh down     tear it down, volumes included
@@ -31,6 +31,11 @@ set -euo pipefail
 readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly compose_file="${repo_root}/docker-compose-postgresql-multimode.yml"
 readonly bucket="${FINERACT_CONTENT_BUCKET:-fineract-content}"
+readonly s3_endpoint="${MOTO_ENDPOINT:-http://localhost:5000}"
+
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 
 export IMAGE_NAME="${IMAGE_NAME:-fineract:local}"
 export FINERACT_DB_PASSWORD="${FINERACT_DB_PASSWORD:-$(openssl rand -hex 24)}"
@@ -50,10 +55,10 @@ if ! docker image inspect "${IMAGE_NAME}" >/dev/null 2>&1; then
     "-Djib.to.image=${IMAGE_NAME}" -x test -x cucumber
 fi
 
-echo ">> starting postgres and localstack"
-docker compose -f "${compose_file}" up -d db localstack
-docker compose -f "${compose_file}" exec -T localstack \
-  awslocal s3api create-bucket --bucket "${bucket}"
+echo ">> starting postgres and moto"
+docker compose -f "${compose_file}" up -d db moto
+# Created before Fineract starts so the content repository finds it.
+aws --endpoint-url "${s3_endpoint}" s3api create-bucket --bucket "${bucket}" >/dev/null
 
 echo ">> starting the four instance modes"
 docker compose -f "${compose_file}" up -d

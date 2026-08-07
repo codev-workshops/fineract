@@ -47,7 +47,7 @@ stays where it is.
 | --- | --- |
 | `terraform/modules/{network,security,data,secrets,iam,ecs,alb}` | reusable modules |
 | `terraform/environments/dev` | the dev environment root |
-| `terraform/localstack` | provider override and driver script for local validation |
+| `terraform/moto` | provider override and driver script for local validation |
 | `local/run-multimode.sh`, `local/verify-multimode.sh` | the local four-mode stack |
 | `../docker-compose-postgresql-multimode.yml` | its compose file |
 
@@ -145,48 +145,64 @@ existing `FINERACT_SERVER_SSL_KEY_STORE_PASSWORD` secret binding.
 use `/fineract-provider/actuator/health` — note the servlet context path, which
 is easy to leave out.
 
-## Validating with LocalStack
+## Validating with moto
 
 ```bash
-localstack start -d
-deployment/terraform/localstack/validate.sh          # init + validate + plan
-deployment/terraform/localstack/validate.sh apply    # apply what LocalStack emulates
-deployment/terraform/localstack/validate.sh destroy
+pip install 'moto[server]'
+MOTO_IAM_LOAD_MANAGED_POLICIES=true moto_server -p 5000
+# or: docker run -d -p 5000:5000 -e MOTO_IAM_LOAD_MANAGED_POLICIES=true motoserver/moto
+
+deployment/terraform/moto/validate.sh          # init + validate + plan
+deployment/terraform/moto/validate.sh apply    # apply what moto implements
+deployment/terraform/moto/validate.sh destroy
 ```
 
-The script copies `providers_override.tf` and `localstack.auto.tfvars` into
+moto serves every API from that one port, S3 included, in path-style. The
+managed-policy flag is not optional: the ECS execution role attaches
+`AmazonECSTaskExecutionRolePolicy`, and without it moto answers `NoSuchEntity`.
+The script checks for both before doing anything.
+
+It copies `providers_override.tf` and `moto.auto.tfvars` into
 `environments/dev`, runs Terraform with state under
-`deployment/terraform/localstack/.state`, and removes the copies again on exit,
-so the real configuration is never left pointing at the emulator.
+`deployment/terraform/moto/.state`, and removes the copies again on exit, so the
+real configuration is never left pointing at the emulator.
 
-`plan` covers the whole topology. `apply` is restricted to the modules LocalStack
-serves under the community/freemium licence — VPC and subnets and endpoints,
-security groups, the S3 content bucket, Secrets Manager, SSM Parameter Store and
-IAM — roughly 60 resources. `rds`, `kafka`, `ecs`, `ecr` and `elbv2` answer
-`501 InternalFailure` there, so the tfvars set `create_database = false` and
-`broker_type = "none"` and the apply is `-target`ed at the supported modules.
-With a licence that covers those services, drop those two overrides and the
-targets.
+`plan` covers the whole topology — 123 resources. `apply` creates 116 of them:
+the VPC with its endpoints, the security groups, the Aurora cluster and its
+instances, the content bucket, Secrets Manager, SSM Parameter Store, IAM, ECR,
+the ECS cluster with all four services and their task definitions, and the ALB
+with its listeners and target groups. `destroy` removes all 116.
 
-### What LocalStack cannot tell you
+Two pieces are planned but not applied, and the tfvars say so:
 
-It proves the configuration is well formed and that the resources it emulates
-can be created. It does **not** validate:
+- **MSK** (`broker_type = "none"`): moto accepts `CreateCluster` but leaves the
+  cluster in `CREATING` for ever, so the provider would block until its timeout.
+- **Application Auto Scaling** (`enable_autoscaling = false`):
+  `ListTagsForResource` is unimplemented, and the provider calls it after every
+  create.
 
-- **ECS Fargate task execution** — nothing pulls the image, assumes the task
-  role, resolves the `secrets` bindings or runs a container.
-- **RDS/Aurora behaviour** — no engine, no Multi-AZ failover, no parameter group
-  semantics, no reader endpoint.
+### What moto cannot tell you
+
+It proves the configuration is well formed and that the resources it implements
+can be created, read back and destroyed. It records API calls; it runs nothing.
+It does **not** validate:
+
+- **ECS Fargate task execution** — the services and task definitions exist as
+  records; nothing pulls the image, assumes the task role, resolves the
+  `secrets` bindings or runs a container.
+- **RDS/Aurora behaviour** — the cluster and instances exist, but there is no
+  engine, no Multi-AZ failover, no parameter group semantics and the reader
+  endpoint resolves nowhere.
 - **MSK at runtime** — no broker, so no IAM handshake and no partition traffic
   between the batch manager and the workers.
-- **ALB TLS termination** — no listener, no ACM validation, no target group
-  health checking.
+- **ALB TLS termination** — the listeners exist, but nothing terminates TLS,
+  validates the ACM certificate or health-checks a target.
 
 All four need a real AWS sandbox account.
 
 ## The local four-mode stack
 
-Rehearses the deployment against real PostgreSQL, real Kafka and LocalStack S3:
+Rehearses the deployment against real PostgreSQL, real Kafka and moto S3:
 
 ```bash
 deployment/local/run-multimode.sh      # builds fineract:local if needed, waits for health
@@ -202,8 +218,8 @@ Ports: write `8443`, read `8444`, batch manager `8445`, batch worker `8446`.
 
 `verify-multimode.sh` checks that the write and read modes report `UP` on
 `/fineract-provider/actuator/health`, that exactly one batch manager container is
-running, and that a document uploaded through the write mode lands in the
-LocalStack bucket and comes back byte-identical through the read mode — the
+running, and that a document uploaded through the write mode lands in the moto
+bucket and comes back byte-identical through the read mode — the
 `DocumentTest` flow, over HTTP.
 
 Kafka stands in for MSK for the reason given above. The read mode needs the

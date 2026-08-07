@@ -32,7 +32,7 @@ terraform {
   }
 
   # Remote state is intentionally left unconfigured so that the same root can be
-  # used against LocalStack with a local state file. Point it at an S3 backend
+  # used against moto with a local state file. Point it at an S3 backend
   # for a real account, for example:
   #
   # backend "s3" {

@@ -20,7 +20,7 @@
 # Checks the stack started by run-multimode.sh:
 #   1. the write and read modes answer UP on /actuator/health
 #   2. exactly one batch manager is running
-#   3. a document round-trips through the LocalStack S3 content store
+#   3. a document round-trips through the moto S3 content store
 #
 # The document flow mirrors integration-tests DocumentTest: create a client,
 # upload a file against it, download it again and compare the bytes.
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 readonly project="${COMPOSE_PROJECT_NAME:-fineract}"
-readonly s3_endpoint="${LOCALSTACK_ENDPOINT:-http://localhost:4566}"
+readonly s3_endpoint="${MOTO_ENDPOINT:-http://localhost:5000}"
 readonly write_url="${FINERACT_WRITE_URL:-http://localhost:8443/fineract-provider/api/v1}"
 readonly read_url="${FINERACT_READ_URL:-http://localhost:8444/fineract-provider/api/v1}"
 readonly bucket="${FINERACT_CONTENT_BUCKET:-fineract-content}"

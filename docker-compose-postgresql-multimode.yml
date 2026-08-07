@@ -16,7 +16,7 @@
 # under the License.
 #
 # Local rehearsal of the AWS deployment described in deployment/README.md: the
-# same image runs in all four instance modes against PostgreSQL and a LocalStack
+# same image runs in all four instance modes against PostgreSQL and a moto
 # S3 content store, with TLS terminated in front of the containers exactly as
 # the ALB does it.
 #
@@ -60,10 +60,10 @@ services:
       POSTGRES_PASSWORD: ${FINERACT_DB_PASSWORD:?set FINERACT_DB_PASSWORD, see deployment/README.md}
       FINERACT_DB_PASS: ${FINERACT_DB_PASSWORD:?set FINERACT_DB_PASSWORD, see deployment/README.md}
 
-  localstack:
+  moto:
     extends:
-      file: ./config/docker/compose/localstack.yml
-      service: localstack
+      file: ./config/docker/compose/moto.yml
+      service: moto
 
   # Stands in for MSK. Splitting the batch manager from the batch workers is
   # only legal with a remote message handler, so the local stack needs a real
@@ -83,13 +83,13 @@ services:
     env_file:
       - ./config/docker/env/fineract-common.env
       - ./config/docker/env/fineract-postgresql.env
-      - ./config/docker/env/content-s3-localstack.env
+      - ./config/docker/env/content-s3-moto.env
       - ./config/docker/env/fineract-readonly-datasource.env
       - ./config/docker/env/fineract-write.env
     depends_on:
       db:
         condition: service_healthy
-      localstack:
+      moto:
         condition: service_healthy
 
   fineract-read:
@@ -99,7 +99,7 @@ services:
     env_file:
       - ./config/docker/env/fineract-common.env
       - ./config/docker/env/fineract-postgresql.env
-      - ./config/docker/env/content-s3-localstack.env
+      - ./config/docker/env/content-s3-moto.env
       - ./config/docker/env/fineract-readonly-datasource.env
       - ./config/docker/env/fineract-read.env
     depends_on:
@@ -115,7 +115,7 @@ services:
     env_file:
       - ./config/docker/env/fineract-common.env
       - ./config/docker/env/fineract-postgresql.env
-      - ./config/docker/env/content-s3-localstack.env
+      - ./config/docker/env/content-s3-moto.env
       - ./config/docker/env/kafka-client.env
       - ./config/docker/env/fineract-batch-manager.env
     depends_on:
@@ -131,7 +131,7 @@ services:
     env_file:
       - ./config/docker/env/fineract-common.env
       - ./config/docker/env/fineract-postgresql.env
-      - ./config/docker/env/content-s3-localstack.env
+      - ./config/docker/env/content-s3-moto.env
       - ./config/docker/env/kafka-client.env
       - ./config/docker/env/fineract-batch-worker.env
     depends_on:

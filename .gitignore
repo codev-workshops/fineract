@@ -40,5 +40,5 @@ gradleExp/
 *.tfstate
 *.tfstate.*
 *.tfplan
-deployment/terraform/localstack/.state/
+deployment/terraform/moto/.state/
 terraform.tfvars

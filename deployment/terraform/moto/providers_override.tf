@@ -18,11 +18,11 @@
 #
 # Terraform merges any `*_override.tf` file over the definitions of the
 # directory it sits in, so copying this file into environments/dev repoints the
-# whole stack at LocalStack without touching the real configuration.
+# whole stack at moto without touching the real configuration.
 # `validate.sh` does exactly that.
 
 terraform {
-  # State stays local; validate.sh points it at deployment/terraform/localstack/.state.
+  # State stays local; validate.sh points it at deployment/terraform/moto/.state.
   backend "local" {}
 }
 
@@ -40,23 +40,25 @@ provider "aws" {
     tags = local.tags
   }
 
+  # moto serves every API from one port, S3 included: it does path-style
+  # addressing, so there is no virtual-host name to point at.
   endpoints {
-    acm                    = "http://localhost:4566"
-    applicationautoscaling = "http://localhost:4566"
-    cloudwatch             = "http://localhost:4566"
-    cloudwatchlogs         = "http://localhost:4566"
-    ec2                    = "http://localhost:4566"
-    ecr                    = "http://localhost:4566"
-    ecs                    = "http://localhost:4566"
-    elbv2                  = "http://localhost:4566"
-    iam                    = "http://localhost:4566"
-    kafka                  = "http://localhost:4566"
-    kms                    = "http://localhost:4566"
-    mq                     = "http://localhost:4566"
-    rds                    = "http://localhost:4566"
-    s3                     = "http://s3.localhost.localstack.cloud:4566"
-    secretsmanager         = "http://localhost:4566"
-    ssm                    = "http://localhost:4566"
-    sts                    = "http://localhost:4566"
+    acm                    = "http://localhost:5000"
+    applicationautoscaling = "http://localhost:5000"
+    cloudwatch             = "http://localhost:5000"
+    cloudwatchlogs         = "http://localhost:5000"
+    ec2                    = "http://localhost:5000"
+    ecr                    = "http://localhost:5000"
+    ecs                    = "http://localhost:5000"
+    elbv2                  = "http://localhost:5000"
+    iam                    = "http://localhost:5000"
+    kafka                  = "http://localhost:5000"
+    kms                    = "http://localhost:5000"
+    mq                     = "http://localhost:5000"
+    rds                    = "http://localhost:5000"
+    s3                     = "http://localhost:5000"
+    secretsmanager         = "http://localhost:5000"
+    ssm                    = "http://localhost:5000"
+    sts                    = "http://localhost:5000"
   }
 }
