@@ -24,6 +24,7 @@ import java.io.File;
 import java.util.List;
 import java.util.Properties;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.campaigns.email.data.EmailMessageWithAttachmentData;
 import org.apache.fineract.infrastructure.configuration.data.SMTPCredentialsData;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesPropertiesReadPlatformService;
@@ -81,7 +82,7 @@ public final class EmailMessageJobEmailServiceImpl implements EmailMessageJobEma
     private Properties getJavaMailProperties(SMTPCredentialsData smtpCredentialsData, Properties properties) {
         properties.put("mail.smtp.starttls.enable", "true");
         properties.put("mail.transport.protocol", "smtp");
-        properties.put("mail.smtp.auth", "true");
+        properties.put("mail.smtp.auth", String.valueOf(StringUtils.isNotBlank(smtpCredentialsData.getPassword())));
         properties.put("mail.smtp.ssl.trust", smtpCredentialsData.getHost());
         if (smtpCredentialsData.isUseTLS()) {
             // Needs to disable startTLS if the port is 465 in order to send the email successfully when using the

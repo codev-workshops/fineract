@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.core.service;
 
 import java.util.Properties;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.configuration.data.SMTPCredentialsData;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesPropertiesReadPlatformService;
 import org.apache.fineract.infrastructure.core.domain.EmailDetail;
@@ -70,7 +71,7 @@ public class GmailBackedPlatformEmailService implements PlatformEmailService {
 
         Properties props = mailSender.getJavaMailProperties();
         props.put("mail.transport.protocol", "smtp");
-        props.put("mail.smtp.auth", "true");
+        props.put("mail.smtp.auth", String.valueOf(StringUtils.isNotBlank(authpwd)));
         props.put("mail.debug", "true");
 
         // these are the added lines
